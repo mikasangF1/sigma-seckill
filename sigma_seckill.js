@@ -28,12 +28,12 @@ const ckName = "sigma_data";
 // 抓包后填入 QuantumultX 的 [persist]sigma_data
 // 格式: {"sid":"xxx","cookie":"xxx","gid":"xxx","mua":"xxx","shield":"xxx","deviceId":"xxx","launch_id":"xxx"}
 var userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName)) || [];
-// 单账号（判空守卫：避免 [undefined] 绕过 checkEnv 的长度检查）
-userCookie = userCookie.length ? [userCookie[0]] : [];
+// 单账号
+userCookie = [userCookie[0]];
 
 $.userIdx = 0, $.userList = [], $.notifyMsg = [];
 $.succCount = 0;
-$.is_debug = ($.isNode() ? process.env.IS_DEDUG || process.env.IS_DEBUG : $.getdata('is_debug')) || 'false';
+$.is_debug = ($.isNode() ? process.env.IS_DEDUG : $.getdata('is_debug')) || 'false';
 
 // Sigma 商品规则：每天 18:00 放库存（stockBegin=18:00）
 // productId: 2001=柠季 2002=霸王茶姬 2004=超级碗 2005=CoCo
@@ -90,9 +90,7 @@ async function proccessMain(userList) {
     async function todo(user) {
         try {
             for (let i = 1; i <= 200; i++) {
-                if (!user.ckStatus) { $.info(`[${user.userName}] 登录失效，终止重试`); break; }
                 let res = await user.preRedeem($.ruleItem.productId);
-                if (!user.ckStatus) { $.info(`[${user.userName}] 登录失效，终止重试`); break; }
                 if (res?.success || res?.code === 0) {
                     $.info(`[${user.userName}] ${$.ruleItem.name} 抢购成功！`);
                     $.succCount++;
@@ -185,7 +183,7 @@ class UserInfo {
         return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     }
 
-    // 秒杀抢购（登录失效时提前终止，避免 401 跑满 200 次重试）
+    // 秒杀抢购
     async preRedeem(productId) {
         try {
             const requestId = this.genRequestId();
@@ -208,11 +206,6 @@ class UserInfo {
             }
             let res = await this.fetch(opts);
             $.info(`[${this.userName}] productId=${productId} res: ${res?.code} ${res?.msg}`);
-            // 401/登录失效 → 标记 ckStatus，外层循环据此终止
-            if (res?.code === 401 || /未登录|登录失效|unauthorized/i.test(res?.msg || '')) {
-                this.ckStatus = false;
-                $.notifyMsg.push(`[${this.userName}] ⚠️ 登录失效，请重新抓包获取 token`);
-            }
             return res;
         } catch (e) {
             $.error(`[${this.userName}] preRedeem错误: ${e}`);
