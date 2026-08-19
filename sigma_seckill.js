@@ -4,11 +4,14 @@
 @Date: 2026.08.19
 @Description: Sigma 燃烧我的卡路里 积分秒杀
 ------------------------------------------
-@Description:
-脚本兼容：Surge、QuantumultX、Loon、Shadowrocket
-
 new Env("Sigma-积分秒杀");
-cron 0 58 17 * * *  sigma_seckill.js
+cron 0 58 17 * * * sigma_seckill.js
+脚本兼容：Surge、QuantumultX、Loon、Shadowrocket，不支持青龙
+
+[rewrite_local]
+^https://api\.sigma\.run url script-request-header https://raw.githubusercontent.com/mikasangF1/sigma-seckill/master/sigma_seckill.js
+[MITM]
+hostname = api.sigma.run
 
 ⚠️【免责声明】
 ------------------------------------------
