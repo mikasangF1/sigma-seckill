@@ -28,8 +28,7 @@ const ckName = "sigma_data";
 // 抓包后填入 QuantumultX 的 [persist]sigma_data
 // 格式: {"sid":"xxx","cookie":"xxx","gid":"xxx","mua":"xxx","shield":"xxx","deviceId":"xxx","launch_id":"xxx"}
 var userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName)) || [];
-// 单账号
-userCookie = [userCookie[0]];
+// 多账号
 
 $.userIdx = 0, $.userList = [], $.notifyMsg = [];
 $.succCount = 0;
