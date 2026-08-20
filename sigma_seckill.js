@@ -97,8 +97,12 @@ async function proccessMain(userList) {
                     $.info(`[${user.userName}] ${$.ruleItem.name}: ${res?.msg}`);
                     !$.notifyMsg.length && $.notifyMsg.push(`[${user.userName}] ${$.ruleItem.name}: ${res?.msg}`);
                     break;
+                } else if ((res?.success || res?.code === 0) && (!res?.data || Object.keys(res.data || {}).length === 0)) {
+                    $.info(`[${user.userName}] 假成功(data空), 等待100ms重试 ${i}/200`);
+                    await new Promise(r => setTimeout(r, 100));
+                    continue;
                 }
-                // 其他错误继续循环
+                await new Promise(r => setTimeout(r, 50));
             }
         } catch (e) {
             $.error(e)
