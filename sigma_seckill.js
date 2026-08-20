@@ -91,7 +91,7 @@ async function proccessMain(userList) {
         try {
             for (let i = 1; i <= 200; i++) {
                 let res = await user.preRedeem($.ruleItem.productId);
-                if (res?.success || res?.code === 0) {
+                if ((res?.success || res?.code === 0) && res?.data && Object.keys(res.data).length > 0) {
                     $.info(`[${user.userName}] ${$.ruleItem.name} 抢购成功！`);
                     $.succCount++;
                     $.notifyMsg.push(`[${user.userName}] ${$.ruleItem.name} 抢购成功！`);
