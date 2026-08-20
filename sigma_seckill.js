@@ -1,8 +1,11 @@
 /*
 ------------------------------------------
 @Author: Akino
-@Date: 2026.08.19
+@Date: 2026.08.21
 @Description: Sigma 燃烧我的卡路里 积分秒杀
+逆向分析: 签名体系 Native 层不可纯静态还原，采用凭据复用策略
+  mua JWT(464B RSA签名) + shield(100B) 从抓包获取静态使用
+  x-mini-sig/nsig/s1 由 Native 签名栈生成，脚本不发送
 ------------------------------------------
 new Env("Sigma-积分秒杀");
 cron 0 58 17 * * * sigma_seckill.js
@@ -27,8 +30,8 @@ const ckName = "sigma_data";
 // 从 HAR 抓包提取的固定认证信息
 // 抓包后填入 QuantumultX 的 [persist]sigma_data
 // 格式: {"sid":"xxx","cookie":"xxx","gid":"xxx","mua":"xxx","shield":"xxx","deviceId":"xxx","launch_id":"xxx"}
+// mua/shield 有有效期，失效后需重新抓包
 var userCookie = $.toObj($.isNode() ? process.env[ckName] : $.getdata(ckName)) || [];
-// 多账号
 
 $.userIdx = 0, $.userList = [], $.notifyMsg = [];
 $.succCount = 0;
@@ -41,6 +44,7 @@ $.rules = [
 ];
 
 const BASE_URL = "https://api.sigma.run";
+const AS_BASE_URL = "https://as.sigma.run";
 const UA = "Bludger/2.17 (iPhone; iOS 16.3.1; Scale/3.00) Resolution/1179*2556 Version/2.17 Build/2170168 Device/(Apple Inc.;iPhone15,2) NetType/WiFi";
 
 //------------------------------------------
@@ -125,7 +129,7 @@ class UserInfo {
         this.ckStatus = true;
 
         this.baseUrl = BASE_URL;
-        this.headers = {
+        this.baseHeaders = {
             'Host': 'api.sigma.run',
             'Content-Type': 'application/json;charset=utf-8',
             'User-Agent': UA,
@@ -140,7 +144,7 @@ class UserInfo {
             'rn-version': '3.28.0',
             'rn-name': 'snitch-rn',
             'Authorization': this.sid,
-            'Cookie': this.cookie,
+            'Cookie': this.cookie || '',
             'x-mini-gid': this.gid,
             'x-mini-mua': this.mua,
             'shield': this.shield,
@@ -150,8 +154,11 @@ class UserInfo {
         this.fetch = async (o) => {
             try {
                 if (typeof o === 'string') o = { url: o };
-                if ((!o?.url) || o?.url?.startsWith("/") || o?.url?.startsWith(":")) o.url = this.baseUrl + (o.url || '')
-                const res = await Request({ ...o, headers: { ...this.headers, ...(o.headers || {}) }, url: o.url || this.baseUrl })
+                if ((!o?.url) || o?.url?.startsWith("/") || o?.url?.startsWith(":")) {
+                    const base = o?.baseUrl || this.baseUrl;
+                    o.url = base + (o.url || '')
+                }
+                const res = await Request({ ...o, headers: { ...this.baseHeaders, ...(o.headers || {}) }, url: o.url || this.baseUrl })
                 debug(res, o?.url?.split('/').pop() || 'fetch');
                 return res;
             } catch (e) {
@@ -159,6 +166,14 @@ class UserInfo {
                 $.error(`[${this.userName}] 请求失败!${e}`);
             }
         }
+    }
+
+    // 根据不同 API 域返回对应 app_id
+    // HAR 分析: api.sigma.run 用 ECFAAF02, fe-platform 用 C67E71, as.sigma.run 用 4BFEF600
+    getAppIdFromUrl(url) {
+        if (url.includes('as.sigma.run')) return '4BFEF600';
+        if (url.includes('fe-platform')) return 'C67E71';
+        return 'ECFAAF02';  // 默认 api.sigma.run
     }
 
     // 生成 requestId（客户端生成，格式: kcal_{时间戳13位}_{8位随机}）
@@ -173,13 +188,16 @@ class UserInfo {
         return Math.floor(Date.now() / 1000).toString();
     }
 
-    // 更新 xy-common-params 中的 t（时间戳）
-    updateCommonParams() {
+    // 更新 xy-common-params
+    // app_id 和 project_id 根据目标 URL 自动切换
+    updateCommonParams(url) {
         const t = this.genT();
-        return `SUE=1&appAlias=sigma&app_id=ECFAAF02&auto_trans=0&build=2170168&channel=AppStore&data_ctry=CN&deviceId=${this.deviceId}&device_model=phone&dlang=zh&fid=&gid=${this.gid}&holder_ctry=CN&identifier_flag=0&is_mac=0&launch_id=${this.launch_id}&mlanguage=zh_cn&overseas_channel=0&platform=iOS&project_id=ECFAAF&sid=${this.sid}&t=${t}&tz=Asia/Shanghai&uis=light&version=2.17`;
+        const appId = this.getAppIdFromUrl(url || '');
+        const projectId = appId === '4BFEF600' ? 'C67E71' : (appId === 'C67E71' ? 'C67E71' : 'ECFAAF');
+        return `SUE=1&appAlias=sigma&app_id=${appId}&auto_trans=0&build=2170168&channel=AppStore&data_ctry=CN&deviceId=${this.deviceId}&device_model=phone&dlang=zh&fid=&gid=${this.gid}&holder_ctry=CN&identifier_flag=0&is_mac=0&launch_id=${this.launch_id}&mlanguage=zh_cn&overseas_channel=0&platform=iOS&project_id=${projectId}&sid=${this.sid}&t=${t}&tz=Asia/Shanghai&uis=light&version=2.17`;
     }
 
-    // 生成随机 TraceId（用于 X-B3-TraceId 和 x-xray-traceid）
+    // 生成随机 TraceId
     genTraceId() {
         return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
     }
@@ -189,13 +207,14 @@ class UserInfo {
         try {
             const requestId = this.genRequestId();
             const traceId = this.genTraceId();
+            const url = "/quidd/kcal/act/pre_redeem";
             const headers = {
                 'X-B3-TraceId': traceId,
                 'x-xray-traceid': `d00d${traceId.substring(0, 24)}`,
-                'xy-common-params': this.updateCommonParams(),
+                'xy-common-params': this.updateCommonParams(url),
             };
             const opts = {
-                url: "/quidd/kcal/act/pre_redeem",
+                url: url,
                 type: "post",
                 dataType: "json",
                 headers: headers,
@@ -218,13 +237,14 @@ class UserInfo {
     async getHome() {
         try {
             const traceId = this.genTraceId();
+            const url = "/quidd/kcal/act/home";
             const opts = {
-                url: "/quidd/kcal/act/home",
+                url: url,
                 type: "post",
                 dataType: "json",
                 headers: {
                     'X-B3-TraceId': traceId,
-                    'xy-common-params': this.updateCommonParams(),
+                    'xy-common-params': this.updateCommonParams(url),
                 },
                 body: JSON.stringify({ activityId: 1001 }),
             }
@@ -248,13 +268,14 @@ class UserInfo {
     async getRedeemList() {
         try {
             const traceId = this.genTraceId();
+            const url = "/quidd/kcal/act/redeem/list";
             const opts = {
-                url: "/quidd/kcal/act/redeem/list",
+                url: url,
                 type: "post",
                 dataType: "json",
                 headers: {
                     'X-B3-TraceId': traceId,
-                    'xy-common-params': this.updateCommonParams(),
+                    'xy-common-params': this.updateCommonParams(url),
                 },
                 body: JSON.stringify({ activityId: 1001 }),
             }
@@ -263,6 +284,40 @@ class UserInfo {
         } catch (e) {
             $.error(`[${this.userName}] getRedeemList错误: ${e}`);
             return [];
+        }
+    }
+
+    // 刷新 mua 和 shield（通过 as.sigma.run 注册机）
+    // 注：as.sigma.run 的请求体包含加密的 device 数据，需要真机抓包
+    // 此函数仅作为预留接口，需配合注册机使用
+    async refreshMua() {
+        try {
+            const traceId = this.genTraceId();
+            const url = "/api/v1/register/ios";
+            const opts = {
+                url: url,
+                baseUrl: AS_BASE_URL,
+                type: "post",
+                dataType: "json",
+                headers: {
+                    'X-B3-TraceId': traceId,
+                    'xy-common-params': this.updateCommonParams(url),
+                },
+                body: JSON.stringify({
+                    // register 请求体需要加密的 device 数据
+                    // 从抓包获取，或通过注册机生成
+                }),
+            }
+            let res = await this.fetch(opts);
+            if (res?.success && res?.data?.g) {
+                this.gid = res.data.g;
+                $.info(`[${this.userName}] 注册成功, gid更新: ${this.gid.substring(0, 16)}...`);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            $.error(`[${this.userName}] refreshMua错误: ${e}`);
+            return false;
         }
     }
 }
