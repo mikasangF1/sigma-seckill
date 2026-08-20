@@ -38,9 +38,7 @@ $.is_debug = ($.isNode() ? process.env.IS_DEDUG : $.getdata('is_debug')) || 'fal
 // Sigma 商品规则：每天 18:00 放库存（stockBegin=18:00）
 // productId: 2001=柠季 2002=霸王茶姬 2004=超级碗 2005=CoCo
 $.rules = [
-    { min: 17, max: 18, productId: 2002, name: "霸王茶姬-原叶鲜奶茶", kcalCost: 1200 },
-    { min: 17, max: 18, productId: 2001, name: "柠季-清爽手打柠檬茶", kcalCost: 1100 },
-    { min: 17, max: 18, productId: 2005, name: "CoCo-西西里柠檬美式", kcalCost: 1100 },
+    { min: 17, max: 18, productId: 2004, name: "蜜汁鸡腿超级碗", kcalCost: 1500 },
 ];
 
 const BASE_URL = "https://api.sigma.run";
